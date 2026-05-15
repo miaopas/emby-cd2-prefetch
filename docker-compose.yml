@@ -1,0 +1,7 @@
+version: "3.8"
+
+services:
+  emby-cd2-prefetch:
+    build: .
+    container_name: emby-cd2-prefetch
+    restart: unless-stopped    
