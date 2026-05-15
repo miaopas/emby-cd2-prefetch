@@ -4,4 +4,17 @@ services:
   emby-cd2-prefetch:
     build: .
     container_name: emby-cd2-prefetch
-    restart: unless-stopped    
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CD2_GRPC_HOST=192.168.1.234:19798
+      - CD2_API_TOKEN=<your_token>
+      - EMBY_PATH_PREFIX=/CloudNAS/CloudDrive
+      - CD2_PATH_PREFIX=
+      - PREFETCH_PRIORITY=HIGH
+      - PREFETCH_TTL=7200
+      - PORT=8094
+    volumes:
+      # 挂载媒体目录，供读取 .strm 文件内容
+      # STRM 文件路径须与 Emby 中看到的路径一致
+      - /CloudNAS/CloudDrive:/CloudNAS/CloudDrive:ro

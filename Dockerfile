@@ -15,6 +15,6 @@ RUN python -m grpc_tools.protoc \
     --grpc_python_out=. \
     /tmp/clouddrive.proto
 
-EXPOSE 8095
+EXPOSE 8094
 
 CMD ["python", "main.py"]

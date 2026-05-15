@@ -1,6 +1,7 @@
 import os
 import logging
 import threading
+from urllib.parse import urlparse
 import grpc
 from flask import Flask, request, jsonify
 from google.protobuf import empty_pb2
@@ -43,6 +44,27 @@ def emby_path_to_cd2(emby_path: str) -> str:
         cd2_path = emby_path[len(EMBY_PATH_PREFIX):]
         return CD2_PATH_PREFIX + cd2_path
     return emby_path
+
+# ─── STRM 解析 ───────────────────────────────────────────────────────────────
+def resolve_strm_path(strm_path: str) -> str | None:
+    """
+    读取 .strm 文件，返回实际媒体路径。
+    支持本地路径格式和 URL 格式（取 path 部分）。
+    需要容器挂载了媒体目录，否则返回 None。
+    """
+    try:
+        with open(strm_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if not content:
+            return None
+        if content.startswith(("http://", "https://")):
+            # URL 格式：http://192.168.1.234:19798/115open/...  → /115open/...
+            return urlparse(content).path
+        return content
+    except OSError as e:
+        log.warning(f"[strm] 无法读取 STRM 文件（容器是否挂载了媒体目录？）: {strm_path}: {e}")
+        return None
+
 
 # ─── 预取逻辑 ─────────────────────────────────────────────────────────────────
 PRIORITY_MAP = {
@@ -139,10 +161,23 @@ def emby_webhook():
     if not path:
         return jsonify({"status": "ignored", "reason": "no path"}), 200
 
-    # 转换路径
-    cd2_path = emby_path_to_cd2(path)
-    log.info(f"[webhook] Emby路径: {path}")
-    log.info(f"[webhook] CD2路径:  {cd2_path}")
+    # STRM 文件：读取实际媒体路径
+    if path.lower().endswith(".strm"):
+        real_path = resolve_strm_path(path)
+        if real_path is None:
+            log.warning(f"[webhook] STRM 文件无法读取，跳过: {path}")
+            return jsonify({"status": "ignored", "reason": "strm unreadable"}), 200
+        log.info(f"[webhook] STRM 文件: {path}")
+        log.info(f"[webhook] STRM 指向: {real_path}")
+        cd2_path = emby_path_to_cd2(real_path)
+    else:
+        # 非网盘路径（本地库），直接忽略
+        if not path.startswith(EMBY_PATH_PREFIX):
+            log.info(f"[webhook] 非网盘路径，跳过: {path}")
+            return jsonify({"status": "ignored", "reason": "local path"}), 200
+        cd2_path = emby_path_to_cd2(path)
+
+    log.info(f"[webhook] CD2路径: {cd2_path}")
 
     # 后台触发预取，不阻塞 webhook 响应
     t = threading.Thread(target=prefetch_file, args=(cd2_path,), daemon=True)
@@ -150,7 +185,7 @@ def emby_webhook():
 
     return jsonify({
         "status": "ok",
-        "message": f"预取已触发",
+        "message": "预取已触发",
         "cd2_path": cd2_path
     }), 200
 
